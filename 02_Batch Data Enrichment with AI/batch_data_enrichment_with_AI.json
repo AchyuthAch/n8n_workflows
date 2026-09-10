@@ -1,0 +1,250 @@
+{
+  "name": "07 - Batch Data Enrichment with AI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Batch Data Enrichment with AI\n**Nodes explored:** Manual Trigger, Code (sample data), LangChain LLM Chain, OpenAI Chat Model, Code (extract & aggregate)\n\n**What it does:** Takes a list of companies, processes them through GPT-4o-mini to generate descriptions, tech stack guesses, and industry classifications. n8n auto-processes all items through the LLM chain.\n\n**How to run:** Click 'Test workflow'. Modify the company list in 'Sample Company List' node.\n\n**Setup:** Set OpenAI credential on 'OpenAI Chat Model' node.",
+        "height": 298,
+        "width": 600
+      },
+      "id": "4bba74b0-e794-43e4-8f15-3471a8c06e03",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f683202f-b08c-420a-93d4-a4ddd05521dc",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const companies = [\n  { name: 'Stripe', website: 'stripe.com', founded: 2010 },\n  { name: 'Notion', website: 'notion.so', founded: 2016 },\n  { name: 'Vercel', website: 'vercel.com', founded: 2015 },\n  { name: 'Supabase', website: 'supabase.com', founded: 2020 },\n  { name: 'Hugging Face', website: 'huggingface.co', founded: 2016 }\n];\n\nreturn companies.map(c => ({ json: c }));"
+      },
+      "id": "fcc4b0a4-425e-44a2-ad88-cd408c55d18e",
+      "name": "Sample Company List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Company: {{ $json.name }}\nWebsite: {{ $json.website }}\nFounded: {{ $json.founded }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a business intelligence analyst. Given a company name and website, return a JSON object with:\n- description: one sentence explaining what the company does\n- industry: the primary industry (e.g. FinTech, DevTools, AI/ML)\n- likely_tech_stack: array of 3-5 technologies they probably use internally\n- business_model: one of B2B, B2C, B2B2C, Marketplace\n- estimated_employees: rough range like '100-500' or '1000-5000'\n\nReturn ONLY valid JSON. No markdown."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "8a715d60-6ffd-4744-803c-ebf8bb4c0fd2",
+      "name": "Enrich Company with AI",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 400,
+          "temperature": 0.3
+        }
+      },
+      "id": "ab4845fe-8cc8-4e3d-8537-261ea58f6bf0",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        528
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "1wlvouYpfDOUpKFI",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process all enriched items and merge with original company data\nconst items = $input.all();\nconst companyItems = $('Sample Company List').all();\n\nreturn items.map((item, i) => {\n  const raw = item.json.output\n            || item.json.text\n            || item.json.response\n            || item.json.message?.content\n            || item.json.content\n            || '';\n  const company = companyItems[i]?.json || {};\n\n  let enrichment;\n  try {\n    const cleaned = String(raw).replace(/```(?:json)?\\n?/g, '').replace(/```$/g, '').trim();\n    enrichment = JSON.parse(cleaned);\n  } catch (e) {\n    enrichment = { error: 'parse_failed', raw: String(raw).substring(0, 300) };\n  }\n\n  return { json: { ...company, ...enrichment, enriched_at: new Date().toISOString() } };\n});"
+      },
+      "id": "9366a6d2-2c77-41cc-b0c2-75977f7a2b62",
+      "name": "Extract Enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect all enriched items into a final report\nconst items = $input.all();\n\nconst report = {\n  total_companies: items.length,\n  processed_at: new Date().toISOString(),\n  companies: items.map(i => i.json)\n};\n\nconsole.log('Enrichment complete:', JSON.stringify(report, null, 2));\nreturn [{ json: report }];"
+      },
+      "id": "5e9eb4be-dec6-49bb-bfc1-5c7fd15136b2",
+      "name": "Compile Final Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "arunachaleswara369@gmail.com",
+        "subject": "=Reg: Company Info for  {{ $json.total_companies }} Companies",
+        "message": "=<h2>📊 Company Report</h2>\n\n<p><b>Total Companies:</b> {{$json.total_companies}}</p>\n<p><b>Processed At:</b> {{$json.processed_at}}</p>\n\n<br>\n\n{{\n$json.companies.map(c => `\n  <div style=\"border:1px solid #ddd; padding:15px; margin-bottom:15px; border-radius:8px;\">\n    \n    <h3 style=\"margin:0; color:#2c3e50;\">${c.name}</h3>\n    \n    <p><b>🌐 Website:</b> \n      <a href=\"https://${c.website}\" target=\"_blank\">${c.website}</a>\n    </p>\n    \n    <p><b>🏢 Industry:</b> ${c.industry}</p>\n    \n    <p><b>📅 Founded:</b> ${c.founded}</p>\n    \n    <p><b>👥 Employees:</b> ${c.estimated_employees}</p>\n    \n    <p><b>💼 Business Model:</b> ${c.business_model}</p>\n    \n    <p><b>🧠 Description:</b><br>${c.description}</p>\n    \n    <p><b>⚙️ Tech Stack:</b><br>\n      ${c.likely_tech_stack.map(t => `<span style=\"background:#f1f1f1; padding:4px 8px; margin:2px; display:inline-block; border-radius:5px;\">${t}</span>`).join('')}\n    </p>\n    \n  </div>\n`).join('')\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1408,
+        304
+      ],
+      "id": "2ada2e84-6eab-4a98-8bc1-6ced725ee024",
+      "name": "Send a message",
+      "webhookId": "847472b8-1d9c-4398-bdaf-2d6c1a26bc17",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nbephPrhsDlJ8b30",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Company List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Company List": {
+      "main": [
+        [
+          {
+            "node": "Enrich Company with AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Enrich Company with AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Company with AI": {
+      "main": [
+        [
+          {
+            "node": "Extract Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Compile Final Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Final Report": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5ba68286-c2ff-4861-a865-8ba570ed28cd",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1eb0b1e450eb2866563977a61b628c9a34f5aa4ef989ff9f0056ba132f5711b5"
+  },
+  "id": "MvJLBaynzWJX943e",
+  "tags": [
+    {
+      "updatedAt": "2026-04-08T04:20:31.204Z",
+      "createdAt": "2026-04-08T04:20:31.204Z",
+      "id": "3cAQsP8fiyKqzqev",
+      "name": "batch"
+    },
+    {
+      "updatedAt": "2026-04-08T04:20:31.163Z",
+      "createdAt": "2026-04-08T04:20:31.163Z",
+      "id": "FU6XjxbEWYuuzJuM",
+      "name": "enrichment"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.290Z",
+      "createdAt": "2026-04-07T17:43:54.290Z",
+      "id": "rGHuavaPEzsf7mZH",
+      "name": "openai"
+    },
+    {
+      "updatedAt": "2026-04-08T04:20:31.166Z",
+      "createdAt": "2026-04-08T04:20:31.166Z",
+      "id": "wY98O8aYMF2BE7Hc",
+      "name": "data"
+    }
+  ]
+}
