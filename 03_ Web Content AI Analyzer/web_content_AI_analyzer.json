@@ -1,0 +1,308 @@
+{
+  "name": "03 - Web Content AI Analyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Web Content AI Analyzer\n**Nodes explored:** Webhook, Set, HTTP Request, Code (JS), LangChain LLM Chain, OpenAI Chat Model, Respond to Webhook\n\n**What it does:** Fetches any webpage, strips HTML to plain text, then asks GPT-3.5-turbo to analyze the content — extracting topic, key points, sentiment, and a summary.\n\n**Test it:**\n```\nPOST http://localhost:5678/webhook/analyze\n{ \"url\": \"https://en.wikipedia.org/wiki/Artificial_intelligence\" }\n```\n\n**Note:** Some sites (Wikipedia, etc.) block requests without a User-Agent header. This workflow includes one by default.\n\n**Setup:** Set OpenAI credential on 'OpenAI Chat Model' node.",
+        "height": 300,
+        "width": 560,
+        "color": 6
+      },
+      "id": "28698586-7cb4-4548-80df-37fbf83d4e01",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1888,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analyze",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c0ec2086-7952-426c-9ff9-38465ce34b1c",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        512
+      ],
+      "webhookId": "web-content-analyzer-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "url1",
+              "name": "target_url",
+              "value": "={{ $json.body.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "19e65fef-2384-4440-996c-97155f420f0d",
+      "name": "Set Target URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2592,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.target_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.5"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "077da9d0-7f23-40ac-9223-4a976219d5c1",
+      "name": "Fetch Webpage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2816,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || $input.first().json.body || '';\nconst url = $('Set Target URL').first().json.target_url;\n\n// Strip HTML tags and clean up whitespace\nlet text = String(html)\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;/g, ' ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\n// Limit to first 3000 chars to stay within token limits\ntext = text.substring(0, 3000);\n\nreturn [{ json: { page_text: text, source_url: url, char_count: text.length } }];"
+      },
+      "id": "0fdf6734-55fd-43ff-bb0b-299aeeca16f7",
+      "name": "Strip HTML to Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3040,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Source: {{ $json.source_url }}\n\nAnalyze the following webpage content and return a JSON object with exactly these fields:\n- topic: main topic in 5 words or less\n- summary: 3 sentence summary\n- key_points: array of 5 key points (strings)\n- sentiment: one of positive/neutral/negative\n- reading_time_minutes: estimated reading time as integer\n\nReturn ONLY valid JSON, no markdown, no explanation.\n\nContent:\n{{ $json.page_text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a content analyst. You always return valid JSON and nothing else."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "c3d0a270-e8fe-4923-bc87-3f308ad25ad5",
+      "name": "Analyze with LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        3264,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 800,
+          "temperature": 0.2
+        }
+      },
+      "id": "58d6b91a-8165-4399-b035-fd9ec13fdfbd",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        3344,
+        736
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "1wlvouYpfDOUpKFI",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// chainLlm output field varies by n8n version\nconst raw = $json.output\n         || $json.text\n         || $json.response\n         || $json.message?.content\n         || $json.content\n         || '';\n\nconst url = $('Set Target URL').first().json.target_url;\n\nlet analysis;\ntry {\n  // Clean markdown code fences if present\n  const cleaned = String(raw).replace(/```(?:json)?\\n?/g, '').replace(/```$/g, '').trim();\n  analysis = JSON.parse(cleaned);\n} catch (e) {\n  analysis = { error: 'Parse failed', raw: String(raw).substring(0, 500) };\n}\n\nreturn [{ json: { source_url: url, analysis, analyzed_at: new Date().toISOString() } }];"
+      },
+      "id": "52c83bf6-1c50-4866-8b38-c25cffc958c4",
+      "name": "Parse JSON Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3616,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "01581d83-07a8-488d-9089-452f4b304ea5",
+      "name": "Return Analysis",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        512
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Set Target URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Target URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Webpage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Webpage": {
+      "main": [
+        [
+          {
+            "node": "Strip HTML to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip HTML to Text": {
+      "main": [
+        [
+          {
+            "node": "Analyze with LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze with LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze with LLM": {
+      "main": [
+        [
+          {
+            "node": "Parse JSON Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse JSON Output": {
+      "main": [
+        [
+          {
+            "node": "Return Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d2a0f411-e936-4941-8ad5-25791a89d76c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1eb0b1e450eb2866563977a61b628c9a34f5aa4ef989ff9f0056ba132f5711b5"
+  },
+  "id": "o7yuUwn5SpddvicG",
+  "tags": [
+    {
+      "updatedAt": "2026-04-07T21:26:35.343Z",
+      "createdAt": "2026-04-07T21:26:35.343Z",
+      "id": "e81LeifeOEeGaAZ1",
+      "name": "http"
+    },
+    {
+      "updatedAt": "2026-04-07T21:26:35.306Z",
+      "createdAt": "2026-04-07T21:26:35.306Z",
+      "id": "gHSvGpaF3tGhwJaO",
+      "name": "scraping"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.290Z",
+      "createdAt": "2026-04-07T17:43:54.290Z",
+      "id": "rGHuavaPEzsf7mZH",
+      "name": "openai"
+    },
+    {
+      "updatedAt": "2026-04-07T21:26:35.309Z",
+      "createdAt": "2026-04-07T21:26:35.309Z",
+      "id": "ygnd8EjWeQ2g5zgL",
+      "name": "analysis"
+    }
+  ]
+}
