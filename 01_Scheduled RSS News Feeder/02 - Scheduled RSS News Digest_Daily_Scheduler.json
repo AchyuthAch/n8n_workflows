@@ -1,0 +1,294 @@
+{
+  "name": "02 - Scheduled RSS News Digest_Daily_Scheduler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Scheduled RSS News Digest\n\n**Flow:** RSS → Limit 5 → LLM Chain (runs x5) → Extract Summary → Build HTML → Gmail\n\nNo loop needed. n8n runs each node once per item automatically.\n\n**Setup:** Set OpenAI credential on 'OpenAI Chat Model' node.",
+        "height": 220,
+        "width": 520,
+        "color": 3
+      },
+      "id": "4993afe6-4862-4dde-a4f2-5b389004ae42",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        8000,
+        3744
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "94b1ce1e-2307-4380-89ab-26823e26d097",
+      "name": "Every Weekday 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        8320,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.nlm.nih.gov/rss/auto/NLMGeneralAnnouncements.rss",
+        "options": {}
+      },
+      "id": "481973e1-7b7d-40bb-bcd0-a35d5a5bec6e",
+      "name": "Fetch Tech News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        8544,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().slice(0, 5);\nreturn items.map(item => ({\n  json: {\n    title:          item.json.title || 'No title',\n    link:           item.json.link  || '',\n    pubDate:        item.json.pubDate || '',\n    contentSnippet: item.json.contentSnippet\n                    || item.json.summary\n                    || item.json.content\n                    || item.json.title\n                    || 'No content available'\n  }\n}));"
+      },
+      "id": "0965506d-5e80-4c33-a7eb-2752a6ac1a49",
+      "name": "Limit to 5 Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8768,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Summarize this news article in 2-3 clear sentences:\n\nTitle: {{ $json.title }}\n\nContent: {{ $json.contentSnippet }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a concise news summarizer. Write 2-3 informative sentences. No bullet points."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "ce290763-3e22-46c0-9ad5-7366ea457198",
+      "name": "Summarize with LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        8992,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "ca1c3087-99f5-4a48-a3ec-30cc8ca7303b",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        9072,
+        4576
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "1wlvouYpfDOUpKFI",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// chainLlm output field varies by n8n version — try all possible names\nconst raw = $json.output\n         || $json.text\n         || $json.response\n         || $json.message?.content\n         || $json.content\n         || JSON.stringify($json);\n\n// Grab the original article from upstream (same item index)\nconst article = $('Limit to 5 Articles').item.json;\n\nreturn [{\n  json: {\n    title:   article.title,\n    link:    article.link,\n    pubDate: article.pubDate,\n    summary: String(raw).trim()\n  }\n}];"
+      },
+      "id": "13cf3d8b-4bc5-495b-bf13-d450a6cf3ad3",
+      "name": "Extract Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9344,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst today = new Date().toLocaleDateString('en-US', {\n  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'\n});\n\nlet html = '<div style=\"font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#222;\">';\nhtml += '<h2 style=\"color:#1a73e8;\">Tech News Digest - ' + today + '</h2>';\nhtml += '<hr style=\"border:none;border-top:2px solid #1a73e8;margin-bottom:24px;\"/>';\n\nfor (const item of items) {\n  const { title, link, pubDate, summary } = item.json;\n  html += '<div style=\"margin-bottom:28px;\">';\n  html += '<h3 style=\"margin:0 0 8px 0;font-size:17px;\"><a href=\"' + link + '\" style=\"color:#1a73e8;text-decoration:none;\">' + title + '</a></h3>';\n  html += '<p style=\"margin:0 0 8px 0;line-height:1.7;font-size:15px;\">' + summary + '</p>';\n  html += '<small style=\"color:#999;font-size:12px;\">Published: ' + pubDate + '</small>';\n  html += '</div>';\n  html += '<hr style=\"border:none;border-top:1px solid #eee;margin-bottom:28px;\"/>';\n}\n\nhtml += '<p style=\"color:#bbb;font-size:12px;text-align:center;margin-top:32px;\">Automatically generated by n8n - ' + items.length + ' articles summarised</p>';\nhtml += '</div>';\n\nreturn [{ json: { html, article_count: items.length, date: today } }];"
+      },
+      "id": "63b935fd-27c4-4ff1-a65f-f4664788b27e",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9568,
+        4352
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "arunachaleswara369@gmail.com",
+        "subject": "=Tech News Digest - {{ $json.date }} ({{ $json.article_count }} articles)",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "db25c6b6-976b-4761-af5d-8b855d869480",
+      "name": "Send a message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        9792,
+        4352
+      ],
+      "webhookId": "efc3337a-5cbe-4739-b2b2-88ffb165100d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nbephPrhsDlJ8b30",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Weekday 8am": {
+      "main": [
+        [
+          {
+            "node": "Fetch Tech News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Tech News RSS": {
+      "main": [
+        [
+          {
+            "node": "Limit to 5 Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit to 5 Articles": {
+      "main": [
+        [
+          {
+            "node": "Summarize with LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize with LLM": {
+      "main": [
+        [
+          {
+            "node": "Extract Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarize with LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Email HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email HTML": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "063d8cf1-a397-4dfc-a368-b6be598ef5a1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1eb0b1e450eb2866563977a61b628c9a34f5aa4ef989ff9f0056ba132f5711b5"
+  },
+  "id": "KGaCwqlDVLWhtAZC",
+  "tags": [
+    {
+      "updatedAt": "2026-04-07T20:45:14.431Z",
+      "createdAt": "2026-04-07T20:45:14.431Z",
+      "id": "Mxto7X0lVqFERD4n",
+      "name": "email"
+    },
+    {
+      "updatedAt": "2026-04-07T20:45:14.469Z",
+      "createdAt": "2026-04-07T20:45:14.469Z",
+      "id": "PMRNeUNctd9Ous0L",
+      "name": "rss"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.254Z",
+      "createdAt": "2026-04-07T17:43:54.254Z",
+      "id": "VWS5N3U0zjNHdWip",
+      "name": "webhook"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.260Z",
+      "createdAt": "2026-04-07T17:43:54.260Z",
+      "id": "pvFHeEOh1pR6PzGs",
+      "name": "chatbot"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.290Z",
+      "createdAt": "2026-04-07T17:43:54.290Z",
+      "id": "rGHuavaPEzsf7mZH",
+      "name": "openai"
+    },
+    {
+      "updatedAt": "2026-04-07T20:45:14.435Z",
+      "createdAt": "2026-04-07T20:45:14.435Z",
+      "id": "z9UisRRBMUYWvScY",
+      "name": "scheduled"
+    }
+  ]
+}
