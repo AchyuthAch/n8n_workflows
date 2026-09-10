@@ -1,0 +1,395 @@
+{
+  "name": "10 - AI Code Review Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## AI Code Review Bot\n**Nodes explored:** Webhook, Set, LangChain LLM Chain, OpenAI Chat Model, Code (parse score), IF (pass/fail threshold), Set (approve/request-changes), Respond to Webhook\n\n**What it does:** Reviews code snippets for quality, security, and best practices. Scores 1-10 and routes to APPROVED or NEEDS CHANGES based on a configurable threshold.\n\n**Test it:**\n```\nPOST http://localhost:5678/webhook/code-review\n{\n  \"code\": \"def get_user(id):\\n  return db.execute(f'SELECT * FROM users WHERE id={id}')\",\n  \"language\": \"python\",\n  \"context\": \"User lookup function for REST API\",\n  \"pass_threshold\": 7\n}\n```\n\n**Setup:** Set OpenAI credential on 'OpenAI Chat Model' node",
+        "height": 348,
+        "width": 660,
+        "color": 2
+      },
+      "id": "381314d3-a606-4224-97df-f58955c9d7c4",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "code-review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "938e8fa1-bbf0-4418-83b5-78a6e3a2b52e",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "webhookId": "code-review-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cr1",
+              "name": "code",
+              "value": "={{ $json.body.code }}",
+              "type": "string"
+            },
+            {
+              "id": "cr2",
+              "name": "language",
+              "value": "={{ $json.body.language || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "cr3",
+              "name": "context",
+              "value": "={{ $json.body.context || 'General use' }}",
+              "type": "string"
+            },
+            {
+              "id": "cr4",
+              "name": "pass_threshold",
+              "value": "={{ $json.body.pass_threshold || 7 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f8b274df-7228-40a8-8893-bdc1e88105e5",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Language: {{ $json.language }}\nContext: {{ $json.context }}\n\nCode to review:\n```{{ $json.language }}\n{{ $json.code }}\n```",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert code reviewer. Analyze the provided code and return a JSON object with:\n- overall_score: integer 1-10 (10 = production-ready, 1 = critical issues)\n- security_issues: array of objects {severity: critical|high|medium|low, issue: string, fix: string}\n- quality_issues: array of objects {severity: high|medium|low, issue: string, fix: string}\n- best_practice_violations: array of strings\n- positive_aspects: array of strings\n- refactored_snippet: improved version of the code as a string\n- summary: 2-3 sentence overall assessment\n\nReturn ONLY valid JSON. No markdown."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "eebfedad-32d5-4c6e-97b3-a7a1d24a3bb0",
+      "name": "Review Code with LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        720,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 1500,
+          "temperature": 0.2
+        }
+      },
+      "id": "0969b09e-4dcd-41f1-93f2-0a4989ee29df",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        624
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "1wlvouYpfDOUpKFI",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// chainLlm output field varies by n8n version\nconst raw = $json.output\n          || $json.text\n          || $json.response\n          || $json.message?.content\n          || $json.content\n          || '';\n\nconst { code, language, context, pass_threshold } = $('Extract Input').first().json;\n\nlet review;\ntry {\n  const cleaned = String(raw).replace(/```(?:json)?\\n?/g, '').replace(/```$/g, '').trim();\n  review = JSON.parse(cleaned);\n} catch (e) {\n  review = { overall_score: 5, security_issues: [], quality_issues: [], best_practice_violations: [], positive_aspects: [], summary: 'Parse error - raw response attached', parse_error: e.message };\n}\n\nconst critical_count = (review.security_issues || []).filter(i => i.severity === 'critical').length;\nconst high_security_count = (review.security_issues || []).filter(i => i.severity === 'high').length;\n\nreturn [{\n  json: {\n    ...review,\n    pass_threshold,\n    passes: review.overall_score >= pass_threshold && critical_count === 0,\n    critical_security_count: critical_count,\n    high_security_count,\n    original_code: code,\n    language,\n    context,\n    reviewed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "6476132c-1802-4dba-9a2e-8466a4c638e8",
+      "name": "Parse Review & Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "pass1",
+              "leftValue": "={{ $json.passes }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "30e233df-5534-4683-96b6-0869a68730e1",
+      "name": "Pass Threshold?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ap1",
+              "name": "status",
+              "value": "APPROVED",
+              "type": "string"
+            },
+            {
+              "id": "ap2",
+              "name": "badge",
+              "value": "✅",
+              "type": "string"
+            },
+            {
+              "id": "ap3",
+              "name": "message",
+              "value": "=Code passes review with score {{ $json.overall_score }}/10. Ready for merge.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22250488-bb73-4c55-8f1f-11f119d7344c",
+      "name": "Mark Approved",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rj1",
+              "name": "status",
+              "value": "NEEDS_CHANGES",
+              "type": "string"
+            },
+            {
+              "id": "rj2",
+              "name": "badge",
+              "value": "❌",
+              "type": "string"
+            },
+            {
+              "id": "rj3",
+              "name": "message",
+              "value": "=Code requires changes. Score: {{ $json.overall_score }}/10. Critical issues: {{ $json.critical_security_count }}. Address security and quality issues before merging.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4d5db1bb-f114-412f-b995-de67569c8fb0",
+      "name": "Mark Needs Changes",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.status, badge: $json.badge, decision_message: $json.message, score: $('Parse Review & Score').first().json.overall_score, threshold: $('Parse Review & Score').first().json.pass_threshold, security_issues: $('Parse Review & Score').first().json.security_issues, quality_issues: $('Parse Review & Score').first().json.quality_issues, positive_aspects: $('Parse Review & Score').first().json.positive_aspects, refactored_snippet: $('Parse Review & Score').first().json.refactored_snippet, summary: $('Parse Review & Score').first().json.summary, reviewed_at: $('Parse Review & Score').first().json.reviewed_at }) }}",
+        "options": {}
+      },
+      "id": "6f9f7953-4c54-44eb-b9c9-d8decf5dbcae",
+      "name": "Return Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        400
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Review Code with LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Review Code with LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Code with LLM": {
+      "main": [
+        [
+          {
+            "node": "Parse Review & Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review & Score": {
+      "main": [
+        [
+          {
+            "node": "Pass Threshold?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Threshold?": {
+      "main": [
+        [
+          {
+            "node": "Mark Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Needs Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Approved": {
+      "main": [
+        [
+          {
+            "node": "Return Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Needs Changes": {
+      "main": [
+        [
+          {
+            "node": "Return Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5ebf797a-a9fd-4f78-959c-dfbd30994025",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1eb0b1e450eb2866563977a61b628c9a34f5aa4ef989ff9f0056ba132f5711b5"
+  },
+  "id": "REX7D8pP7ZZeYedN",
+  "tags": [
+    {
+      "updatedAt": "2026-04-08T04:22:18.140Z",
+      "createdAt": "2026-04-08T04:22:18.140Z",
+      "id": "FSArbGeTppQmxlTB",
+      "name": "if-else"
+    },
+    {
+      "updatedAt": "2026-04-08T04:22:18.183Z",
+      "createdAt": "2026-04-08T04:22:18.183Z",
+      "id": "KkvQiS0bIDjxxWbr",
+      "name": "code-review"
+    },
+    {
+      "updatedAt": "2026-04-08T04:22:18.187Z",
+      "createdAt": "2026-04-08T04:22:18.187Z",
+      "id": "ZAOiHKuZAxwLpjUg",
+      "name": "security"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.290Z",
+      "createdAt": "2026-04-07T17:43:54.290Z",
+      "id": "rGHuavaPEzsf7mZH",
+      "name": "openai"
+    }
+  ]
+}
