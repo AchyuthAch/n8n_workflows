@@ -1,0 +1,447 @@
+{
+  "name": "05 - Sentiment Analysis Router",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sentiment Analysis Router\n**Nodes explored:** Webhook, LangChain LLM Chain, OpenAI Chat Model, Code, Switch, Set (multiple), Respond to Webhook\n\n**What it does:** Classifies incoming text as positive/neutral/negative, scores confidence, and routes to different handling branches — demonstrating conditional logic and multi-branch flows.\n\n**Test it:**\n```\nPOST http://localhost:5678/webhook/sentiment\n{ \"text\": \"I absolutely love this product, it changed my life!\", \"context\": \"product review\" }\n```\n\n**Setup:** Set OpenAI credential on 'OpenAI Chat Model' node",
+        "height": 372,
+        "width": 600,
+        "color": 2
+      },
+      "id": "fe95bc11-9962-4036-993c-dab14e30358c",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sentiment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8d849b30-031e-4444-9bc7-6ecdd4be91fe",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        640
+      ],
+      "webhookId": "sentiment-webhook"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Context: {{ $json.body.context || 'general' }}\n\nText to analyze:\n{{ $json.body.text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a sentiment analysis API. Analyze the given text and return ONLY a valid JSON object with:\n- sentiment: exactly one of \"positive\", \"neutral\", or \"negative\"\n- confidence: float between 0.0 and 1.0\n- emotions: array of up to 3 detected emotions (strings)\n- reason: one sentence explaining the classification\n\nReturn ONLY JSON. No markdown. No explanation."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "f53b38a2-ae54-4330-bbb2-562964be01aa",
+      "name": "Classify Sentiment",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1488,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 300,
+          "temperature": 0.1
+        }
+      },
+      "id": "2b97b265-8289-4d23-bfdb-7d9ca195c659",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1488,
+        864
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "1wlvouYpfDOUpKFI",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// chainLlm output field varies by n8n version\nconst raw = $json.output\n          || $json.text\n          || $json.response\n          || $json.message?.content\n          || $json.content\n          || '';\n\nconst original_text = $('Webhook').first().json.body.text;\n\nlet result;\ntry {\n  const cleaned = String(raw).replace(/```(?:json)?\\n?/g, '').replace(/```$/g, '').trim();\n  result = JSON.parse(cleaned);\n} catch (e) {\n  result = { sentiment: 'neutral', confidence: 0.5, emotions: [], reason: 'Parse error' };\n}\n\nreturn [{ json: { ...result, original_text, analyzed_at: new Date().toISOString() } }];"
+      },
+      "id": "6e406a50-30f1-4cf2-b10a-2429c0fc7b80",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sentiment }}",
+                    "rightValue": "positive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "positive"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sentiment }}",
+                    "rightValue": "neutral",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "neutral"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.sentiment }}",
+                    "rightValue": "negative",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "negative"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6172c275-0dda-45d9-92ca-75a11dbadd79",
+      "name": "Route by Sentiment",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1968,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pos1",
+              "name": "action",
+              "value": "escalate_to_success_team",
+              "type": "string"
+            },
+            {
+              "id": "pos2",
+              "name": "priority",
+              "value": "low",
+              "type": "string"
+            },
+            {
+              "id": "pos3",
+              "name": "message",
+              "value": "Great feedback! Consider requesting a testimonial.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b472f71b-aee6-4eed-b37c-0c7207e4dd51",
+      "name": "Handle Positive",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "neu1",
+              "name": "action",
+              "value": "log_for_review",
+              "type": "string"
+            },
+            {
+              "id": "neu2",
+              "name": "priority",
+              "value": "low",
+              "type": "string"
+            },
+            {
+              "id": "neu3",
+              "name": "message",
+              "value": "Neutral feedback logged. No immediate action required.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5008521a-8ce3-49a9-bbbc-a113d543a98a",
+      "name": "Handle Neutral",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "neg1",
+              "name": "action",
+              "value": "alert_support_team",
+              "type": "string"
+            },
+            {
+              "id": "neg2",
+              "name": "priority",
+              "value": "high",
+              "type": "string"
+            },
+            {
+              "id": "neg3",
+              "name": "message",
+              "value": "Negative feedback detected! Requires immediate follow-up.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2c78dd03-e8de-48c9-b5d5-de5b68cc5a8d",
+      "name": "Handle Negative",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, sentiment: $('Parse Classification').first().json.sentiment, confidence: $('Parse Classification').first().json.confidence, emotions: $('Parse Classification').first().json.emotions, reason: $('Parse Classification').first().json.reason, action: $json.action, priority: $json.priority, message: $json.message }) }}",
+        "options": {}
+      },
+      "id": "1ae4dc61-e94c-41eb-845a-268962232ee4",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2448,
+        640
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Classify Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Sentiment",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Route by Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Handle Positive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Neutral",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Negative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Positive": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Neutral": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Negative": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "bcf711a1-4f52-4f3d-83bb-4ea4c19eddbc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1eb0b1e450eb2866563977a61b628c9a34f5aa4ef989ff9f0056ba132f5711b5"
+  },
+  "id": "rk5hxvzhXuNj0GBe",
+  "tags": [
+    {
+      "updatedAt": "2026-04-07T22:11:46.364Z",
+      "createdAt": "2026-04-07T22:11:46.364Z",
+      "id": "NRjajuTYpOVpihff",
+      "name": "routing"
+    },
+    {
+      "updatedAt": "2026-04-07T22:11:46.317Z",
+      "createdAt": "2026-04-07T22:11:46.317Z",
+      "id": "PaCQHAeO68hyYJUD",
+      "name": "switch"
+    },
+    {
+      "updatedAt": "2026-04-07T22:11:46.366Z",
+      "createdAt": "2026-04-07T22:11:46.366Z",
+      "id": "kTDjnjL0KiaoitoL",
+      "name": "sentiment"
+    },
+    {
+      "updatedAt": "2026-04-07T17:43:54.290Z",
+      "createdAt": "2026-04-07T17:43:54.290Z",
+      "id": "rGHuavaPEzsf7mZH",
+      "name": "openai"
+    }
+  ]
+}
