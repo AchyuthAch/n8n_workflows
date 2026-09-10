@@ -1,7 +1,3 @@
-I’m opening the workflow JSON you have selected so I can explain each node and how the automation flows together.
-
-Read 
-
 ## ✅ Workflow overview
 
 This is a scheduled daily tech-news email pipeline. It:
@@ -158,5 +154,3 @@ This workflow is a “scheduled AI-powered news digest”:
 - OpenAI summarization
 - HTML email formatting
 - Gmail delivery
-
-If you want, I can also break it down as a “node-by-node technical explanation” or “how to modify this workflow for your own RSS source and email recipient.”
